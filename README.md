@@ -46,20 +46,6 @@ monitorador_processos/
 └── .gitignore
 ```
 
----
-
-## 🧪 Exemplo de Execução
-
-```bash
-# Modo de testes, envia via Telegram
-python monitorar.py --modo teste --canal telegram
-
-# Modo de produção, envia via WhatsApp
-python monitorar.py --modo producao --canal whatsapp
-```
-
----
-
 ## 📝 Arquivos de Configuração
 
 ### 🔐 `envio_dados.json` 
@@ -102,15 +88,41 @@ numero,comarca,tipo,parte
 ```
 
 ---
-## ✅ Pré-requisitos
+## ⚙️ Instalação e Configuração
 
-Instale as dependências com:
+Siga os passos abaixo para configurar e executar o projeto.
+
+### 1. Pré-requisitos
+
+Clone o repositório e instale as dependências necessárias.
 
 ```bash
+# Clone este repositório
+git clone [https://github.com/seu-usuario/seu-projeto.git](https://github.com/seu-usuario/seu-projeto.git)
+
+# Acesse a pasta do projeto
+cd monitorador_processos
+
+# Instale as dependências do Python
 pip install -r requirements.txt
+
+# Instale os navegadores para o Playwright
 playwright install
 ```
 
+---
+
+## 🧪 Exemplo de Execução
+
+```bash
+# Modo de testes, envia via Telegram
+python monitorar.py --modo teste --canal telegram
+
+# Modo de produção, envia via WhatsApp
+python monitorar.py --modo producao --canal whatsapp
+```
+
+---
 ---
 
 ## 📌 Licença
