@@ -98,7 +98,7 @@ Clone o repositório e instale as dependências necessárias.
 
 ```bash
 # Clone este repositório
-git clone [https://github.com/seu-usuario/seu-projeto.git](https://github.com/seu-usuario/seu-projeto.git)
+git clone [https://github.com/Fernanndes/MonitoradorProcessos)
 
 # Acesse a pasta do projeto
 cd monitorador_processos
