@@ -1,6 +1,7 @@
 import asyncio
 import os
 import json
+import re
 from playwright.async_api import async_playwright
 import argparse
 from envio.telegram import enviar_telegram
@@ -13,6 +14,11 @@ parser.add_argument("--modo", choices=["producao", "teste"], default="teste")
 parser.add_argument("--canal", choices=["telegram", "whatsapp"], default="telegram")
 args = parser.parse_args()
 canal = args.canal
+
+
+# Função para remover espaços a mais
+def normalizar_espacos(texto):
+    return re.sub(r'\s+', ' ', texto.strip())
 
 
 # Carregar processo através de csv
@@ -77,7 +83,7 @@ async def checar_processo(playwright, processo):
     codigo = extrair_codigo(processo["numero"])
     ultimo_movimento_salvo = ler_ultimo_movimento(codigo)
 
-    browser = await playwright.chromium.launch(headless=False)
+    browser = await playwright.chromium.launch(headless=True)
     context = await browser.new_context()
     page = await context.new_page()
 
@@ -186,7 +192,7 @@ async def checar_processo(playwright, processo):
     if processo.get("parte"):
         mensagem += f"⚖️ Parte: {processo['parte']}\n"
 
-    if movimento_formatado and movimento_formatado.strip() == (ultimo_movimento_salvo or "").strip():
+    if normalizar_espacos(movimento_formatado) == normalizar_espacos(ultimo_movimento_salvo or ""):
         print("✔️ Sem novos movimentos\n")
         mensagem += "✔️ Sem novos movimentos"
         await browser.close()
@@ -209,6 +215,8 @@ async def main():
 
         for idx, processo in enumerate(processos, 1):
             if processo.get("tipo") == "Agravo de Instrumento":
+                print(f"Processo nº{processo['numero']}, de {processo['parte'].title()} "
+                      f"- Agravo de Instrumento com segredo de justiça")
                 continue
 
             print(f"\n📦 Processando {idx}/{len(processos)}: {processo['numero']}")
@@ -222,7 +230,7 @@ async def main():
             # ✅ Fecha apenas o navegador do TJRS
             await browser_consulta.close()
 
-            mensagem_numerada = f"📩 Mensagem {idx} de {len(processos)}:\n" + mensagem
+            mensagem_numerada = f"📩 Mensagem {idx} de {len(processos)-1}:\n" + mensagem
 
             if canal == "telegram":
                 enviar_telegram(mensagem_numerada, BOT_TOKEN, CHAT_ID)
