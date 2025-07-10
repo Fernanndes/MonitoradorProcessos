@@ -161,7 +161,7 @@ async def checar_processo(playwright, processo):
                 descricao = descricao_raw.strip() if descricao_raw else ""
                 movimento_formatado = f"{numero} - {descricao}"
 
-                print("✅ Movimento extraído da interface visual.")
+                print("📄 Movimento extraído da interface visual.")
                 break  # ✅ deu certo, sai do loop
             except Exception as e:
                 print(f"❌ Falha ao extrair visualmente: {e}")
@@ -221,14 +221,8 @@ async def main():
 
             print(f"\n📦 Processando {idx}/{len(processos)}: {processo['numero']}")
 
-            # 🔁 Abre navegador temporário só para consulta no TJRS
-            browser_consulta = await playwright.chromium.launch(headless=False)
-
             # 📄 Consulta processo
             houve_novidade, mensagem = await checar_processo(playwright, processo)
-
-            # ✅ Fecha apenas o navegador do TJRS
-            await browser_consulta.close()
 
             mensagem_numerada = f"📩 Mensagem {idx} de {len(processos)-1}:\n" + mensagem
 
