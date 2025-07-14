@@ -108,9 +108,13 @@ async def checar_processo(playwright, processo):
 
         # Esperar visualmente pelo cabeçalho "CONSULTA DE 1º GRAU" no iframe
         try:
-            await frame.locator("h3:text('CONSULTA DE 1º GRAU')").wait_for(timeout=30_000)
+            await (
+                frame.locator("h3:text('CONSULTA DE 1º GRAU'), h3:text('CONSULTA DE 2º GRAU')")
+                .wait_for(timeout=30_000)
+            )
         except TimeoutError:
-            print("⚠️ Elemento visual 'CONSULTA DE 1º GRAU' não apareceu, prosseguindo com base na resposta XHR.")
+            print("⚠️ Elemento visual 'CONSULTA DE 1º GRAU ou 2º GRAU' não apareceu, "
+                  "prosseguindo com base na resposta XHR.")
 
         return response_visual
 
@@ -184,7 +188,7 @@ async def checar_processo(playwright, processo):
     if processo.get("tipo") == "Agravo de Instrumento":
         mensagem += f"📍 Câmara: {processo['comarca']}\n"
     else:
-        mensagem += f"📍 Comarca: {processo['comarca']}\n"
+        mensagem += f"📍 Juízo: {processo['comarca']}\n"
 
     if processo.get("tipo"):
         mensagem += f"🏷️ Tipo: {processo['tipo']}\n"
@@ -214,17 +218,13 @@ async def main():
             browser_whatsapp, page_whatsapp = await iniciar_whatsapp(playwright, PROFILE_DIR)
 
         for idx, processo in enumerate(processos, 1):
-            if processo.get("tipo") == "Agravo de Instrumento":
-                print(f"Processo nº{processo['numero']}, de {processo['parte'].title()} "
-                      f"- Agravo de Instrumento com segredo de justiça")
-                continue
 
             print(f"\n📦 Processando {idx}/{len(processos)}: {processo['numero']}")
 
             # 📄 Consulta processo
             houve_novidade, mensagem = await checar_processo(playwright, processo)
 
-            mensagem_numerada = f"📩 Mensagem {idx} de {len(processos)-1}:\n" + mensagem
+            mensagem_numerada = f"📩 Mensagem {idx} de {len(processos)}:\n" + mensagem
 
             if canal == "telegram":
                 enviar_telegram(mensagem_numerada, BOT_TOKEN, CHAT_ID)

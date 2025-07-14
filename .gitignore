@@ -4,6 +4,8 @@ whatsapp_profile/
 
 processos.csv
 
+create_db.py
+db_unificado.db
 config.json
 envio_dados.json
 
