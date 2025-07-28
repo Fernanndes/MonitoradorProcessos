@@ -7,6 +7,7 @@ import argparse
 from envio.telegram import enviar_telegram
 from envio.whatsapp import iniciar_whatsapp, enviar_whatsapp
 import pandas as pd
+from resumo_ia import gerar_resumo
 
 # Argumento de linha de comando
 parser = argparse.ArgumentParser()
@@ -83,7 +84,7 @@ async def checar_processo(playwright, processo):
     codigo = extrair_codigo(processo["numero"])
     ultimo_movimento_salvo = ler_ultimo_movimento(codigo)
 
-    browser = await playwright.chromium.launch(headless=True)
+    browser = await playwright.chromium.launch(headless=False)
     context = await browser.new_context()
     page = await context.new_page()
 
@@ -196,16 +197,22 @@ async def checar_processo(playwright, processo):
     if processo.get("parte"):
         mensagem += f"⚖️ Parte: {processo['parte']}\n"
 
-    if normalizar_espacos(movimento_formatado) == normalizar_espacos(ultimo_movimento_salvo or ""):
+    houve_novidade = normalizar_espacos(movimento_formatado) != normalizar_espacos(ultimo_movimento_salvo or "")
+
+    if houve_novidade:
+        print("🔔 Nova movimentação detectada\n")
+        mensagem += "🔔 Nova movimentação detectada\n"
+        mensagem += f"    {movimento_formatado}"
+    else:
         print("✔️ Sem novos movimentos\n")
         mensagem += "✔️ Sem novos movimentos"
-        await browser.close()
-        return False, mensagem
-    else:
-        print("🔔 Nova movimentação detectada\n")
-        mensagem += "🔔 Nova movimentação detectada"
-        await browser.close()
-        return True, mensagem
+    #
+    # # 🔁 Geração de resumo IA (em ambos os casos)
+    # resumo_ia = gerar_resumo(codigo, movimento_formatado, houve_novidade, processo.get("tipo"))
+    # mensagem += f"\n\n🧠 Resumo IA:\n{resumo_ia}"
+
+    await browser.close()
+    return houve_novidade, mensagem
 
 
 async def main():
