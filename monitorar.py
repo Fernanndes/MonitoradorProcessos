@@ -7,7 +7,7 @@ import argparse
 from envio.telegram import enviar_telegram
 from envio.whatsapp import iniciar_whatsapp, enviar_whatsapp
 import pandas as pd
-from resumo_ia import gerar_resumo
+# from resumo_ia import gerar_resumo
 
 # Argumento de linha de comando
 parser = argparse.ArgumentParser()
@@ -80,184 +80,197 @@ def ler_ultimo_movimento(codigo):
     return None
 
 
-async def checar_processo(playwright, processo):
+async def checar_processo(browser, processo):
     codigo = extrair_codigo(processo["numero"])
     ultimo_movimento_salvo = ler_ultimo_movimento(codigo)
 
-    browser = await playwright.chromium.launch(headless=False)
     context = await browser.new_context()
     page = await context.new_page()
 
-    await page.goto("https://www.tjrs.jus.br/novo/busca/?return=proc&client=wp_index", timeout=0)
+    try:
+        await page.goto("https://www.tjrs.jus.br/novo/busca/?return=proc&client=wp_index", timeout=0)
 
-    # Acessa o iframe da busca
-    await page.wait_for_selector("iframe")
-    frame_element = await page.wait_for_selector("iframe")
-    frame = await frame_element.content_frame()
+        # Acessa o iframe da busca
+        await page.wait_for_selector("iframe")
+        frame_element = await page.wait_for_selector("iframe")
+        frame = await frame_element.content_frame()
 
-    # Preenche número do processo
-    input_locator = frame.locator("[formcontrolname='numeroProcesso']")
-    await input_locator.wait_for(state="visible")
-    await input_locator.fill(processo["numero"])
+        # Preenche número do processo
+        input_locator = frame.locator("[formcontrolname='numeroProcesso']")
+        await input_locator.wait_for(state="visible")
+        await input_locator.fill(processo["numero"])
 
-    async def esperar_resposta():
-        async with page.expect_response(lambda r: "consultaProcesso?numeroProcesso=" in r.url,
-                                        timeout=60_000) as resp_info:
-            await frame.click('button:has-text("Pesquisar")')
+        async def esperar_resposta():
+            async with page.expect_response(lambda r: "consultaProcesso?numeroProcesso=" in r.url,
+                                            timeout=60_000) as resp_info:
+                await frame.click('button:has-text("Pesquisar")')
 
-        response_visual = await resp_info.value
+            response_visual = await resp_info.value
 
-        # Esperar visualmente pelo cabeçalho "CONSULTA DE 1º GRAU" no iframe
-        try:
-            await (
-                frame.locator("h3:text('CONSULTA DE 1º GRAU'), h3:text('CONSULTA DE 2º GRAU')")
-                .wait_for(timeout=30_000)
-            )
-        except TimeoutError:
-            print("⚠️ Elemento visual 'CONSULTA DE 1º GRAU ou 2º GRAU' não apareceu, "
-                  "prosseguindo com base na resposta XHR.")
+            # Esperar visualmente pelo cabeçalho "CONSULTA DE 1º GRAU" no iframe
+            try:
+                await (
+                    frame.locator("h3:text('CONSULTA DE 1º GRAU'), h3:text('CONSULTA DE 2º GRAU')")
+                    .wait_for(timeout=30_000)
+                )
+            except TimeoutError:
+                print("⚠️ Elemento visual 'CONSULTA DE 1º GRAU ou 2º GRAU' não apareceu, "
+                      "prosseguindo com base na resposta XHR.")
 
-        return response_visual
+            return response_visual
 
-    # usar_html = False
-    movimento_formatado = None  # ← inicializa
-    response = await esperar_resposta()
+        # usar_html = False
+        movimento_formatado = None  # ← inicializa
+        response = await esperar_resposta()
 
-    for tentativa in range(3):
-        try:
-            # Tenta obter da API
-            text = await response.text()
-            if not text.strip():
-                print(f"⚠️ Resposta vazia da API para {processo['numero']}")
-                usar_html = True
-            else:
-                json_data = json.loads(text)
-                data = json_data.get("data", [])
-                if not data:
-                    print(f"⚠️ JSON com 'data' vazio para {processo['numero']}")
+        for tentativa in range(3):
+            try:
+                # Tenta obter da API
+                text = await response.text()
+                if not text.strip():
+                    print(f"⚠️ Resposta vazia da API para {processo['numero']}")
                     usar_html = True
                 else:
-                    movimentos = data[0].get("movimentos", {}).get("movimento", [])
-
-                    if not movimentos:
-                        print(f"⚠️ JSON com 'movimentos' vazio para {processo['numero']}")
+                    json_data = json.loads(text)
+                    data = json_data.get("data", [])
+                    if not data:
+                        print(f"⚠️ JSON com 'data' vazio para {processo['numero']}")
                         usar_html = True
                     else:
-                        # Sucesso: extrai da API
-                        ultimo_movimento_atual = movimentos[0]
-                        numero = ultimo_movimento_atual.get("numero", "??")
-                        descricao = ultimo_movimento_atual.get("descricao", "").strip()
-                        movimento_formatado = f"{numero} - {descricao}"
-                        
-                        break  # ✅ deu certo, sai do loop
-        except Exception as e:
-            print(f"❌ Erro ao processar JSON da resposta: {e}")
-            usar_html = True
+                        movimentos = data[0].get("movimentos", {}).get("movimento", [])
 
-        # Se a API falhou, tenta extrair do HTML da interface
-        if usar_html:
-            try:
-                await frame.wait_for_selector("td.cdk-column-evento", timeout=5000)
+                        if not movimentos:
+                            print(f"⚠️ JSON com 'movimentos' vazio para {processo['numero']}")
+                            usar_html = True
+                        else:
+                            # Sucesso: extrai da API
+                            ultimo_movimento_atual = movimentos[0]
+                            numero = ultimo_movimento_atual.get("numero", "??")
+                            descricao = ultimo_movimento_atual.get("descricao", "").strip()
+                            movimento_formatado = f"{numero} - {descricao}"
 
-                numero_raw = await frame.locator("td.cdk-column-evento p").first.text_content()
-                descricao_raw = await frame.locator("td.cdk-column-descricao span").first.text_content()
-
-                numero = numero_raw.strip() if numero_raw else "??"
-                descricao = descricao_raw.strip() if descricao_raw else ""
-                movimento_formatado = f"{numero} - {descricao}"
-
-                print("📄 Movimento extraído da interface visual.")
-                break  # ✅ deu certo, sai do loop
+                            break  # ✅ deu certo, sai do loop
             except Exception as e:
-                print(f"❌ Falha ao extrair visualmente: {e}")
-                if tentativa < 3:
-                    print("🔁 Recarregando página para nova tentativa...")
-                    await page.reload()
-                    await input_locator.wait_for(state="visible")
-                    await input_locator.fill(processo["numero"])
-                else:
-                    await browser.close()
-                    return False
+                print(f"❌ Erro ao processar JSON da resposta: {e}")
+                usar_html = True
 
-    print(f"\n🔍 Checando processo nº {processo['numero']}")
-    print(f"📂 Movimento mais recente registrado no arquivo: {ultimo_movimento_salvo or '[nenhum]'}")
-    print(f"🌐 Movimento mais recente encontrado online:     {movimento_formatado}")
+            # Se a API falhou, tenta extrair do HTML da interface
+            if usar_html:
+                try:
+                    await frame.wait_for_selector("td.cdk-column-evento", timeout=5000)
 
-    # 📲 Monta mensagem
-    mensagem = f"🔍 Checando processo nº {processo['numero']}\n"
+                    numero_raw = await frame.locator("td.cdk-column-evento p").first.text_content()
+                    descricao_raw = await frame.locator("td.cdk-column-descricao span").first.text_content()
 
-    if processo.get("tipo") == "Agravo de Instrumento":
-        mensagem += f"📍 Câmara: {processo['comarca']}\n"
-    else:
-        mensagem += f"📍 Juízo: {processo['comarca']}\n"
+                    numero = numero_raw.strip() if numero_raw else "??"
+                    descricao = descricao_raw.strip() if descricao_raw else ""
+                    movimento_formatado = f"{numero} - {descricao}"
 
-    if processo.get("tipo"):
-        mensagem += f"🏷️ Tipo: {processo['tipo']}\n"
+                    print("📄 Movimento extraído da interface visual.")
+                    break  # ✅ deu certo, sai do loop
+                except Exception as e:
+                    print(f"❌ Falha ao extrair visualmente: {e}")
+                    if tentativa < 3:
+                        print("🔁 Recarregando página para nova tentativa...")
+                        await page.reload()
+                        await input_locator.wait_for(state="visible")
+                        await input_locator.fill(processo["numero"])
+                    else:
+                        print(f"❌ Falha crítica ao extrair dados para o processo {processo['numero']}.")
+                        return False, f"❌ Não foi possível consultar o processo {processo['numero']} após 3 tentativas."
 
-    if processo.get("parte"):
-        mensagem += f"⚖️ Parte: {processo['parte']}\n"
+        print(f"\n🔍 Checando processo nº {processo['numero']}")
+        print(f"📂 Movimento mais recente registrado no arquivo: {ultimo_movimento_salvo or '[nenhum]'}")
+        print(f"🌐 Movimento mais recente encontrado online:     {movimento_formatado}")
 
-    houve_novidade = normalizar_espacos(movimento_formatado) != normalizar_espacos(ultimo_movimento_salvo or "")
+        # 📲 Monta mensagem
+        mensagem = f"🔍 Checando processo nº {processo['numero']}\n"
 
-    if houve_novidade:
-        print("🔔 Nova movimentação detectada\n")
-        mensagem += "🔔 Nova movimentação detectada\n"
-        mensagem += f"    {movimento_formatado}"
-    else:
-        print("✔️ Sem novos movimentos\n")
-        mensagem += "✔️ Sem novos movimentos"
-    #
-    # # 🔁 Geração de resumo IA (em ambos os casos)
-    # resumo_ia = gerar_resumo(codigo, movimento_formatado, houve_novidade, processo.get("tipo"))
-    # mensagem += f"\n\n🧠 Resumo IA:\n{resumo_ia}"
+        if processo.get("tipo") == "Agravo de Instrumento":
+            mensagem += f"📍 Câmara: {processo['comarca']}\n"
+        else:
+            mensagem += f"📍 Juízo: {processo['comarca']}\n"
 
-    await browser.close()
-    return houve_novidade, mensagem
+        if processo.get("tipo"):
+            mensagem += f"🏷️ Tipo: {processo['tipo']}\n"
+
+        if processo.get("parte"):
+            mensagem += f"⚖️ Parte: {processo['parte']}\n"
+
+        houve_novidade = normalizar_espacos(movimento_formatado) != normalizar_espacos(ultimo_movimento_salvo or "")
+
+        if houve_novidade:
+            print("🔔 Nova movimentação detectada\n")
+            mensagem += f"🔔 Nova movimentação detectada\n\n    {movimento_formatado}"
+        else:
+            print("✔️ Sem novos movimentos\n")
+            mensagem += "✔️ Sem novos movimentos"
+        #
+        # # 🔁 Geração de resumo IA (em ambos os casos)
+        # resumo_ia = gerar_resumo(codigo, movimento_formatado, houve_novidade, processo.get("tipo"))
+        # mensagem += f"\n\n🧠 Resumo IA:\n{resumo_ia}"
+        return houve_novidade, mensagem
+    finally:
+        await page.close()  # Fecha a página (aba), mas mantém o navegador aberto
+        await context.close()
 
 
 async def main():
     total_sem_novidade = 0
     total_com_novidade = 0
 
+    browser_whatsapp = None
+    page_whatsapp = None
+    browser_scraper = None  # <-- Novo
+
     async with async_playwright() as playwright:
+        try:
+            if canal == "whatsapp":
+                print("Iniciando navegador para o WhatsApp...")
+                browser_whatsapp, page_whatsapp = await iniciar_whatsapp(playwright, PROFILE_DIR)
 
-        if canal == "whatsapp":
-            browser_whatsapp, page_whatsapp = await iniciar_whatsapp(playwright, PROFILE_DIR)
+            # Lança o navegador para a raspagem de dados UMA VEZ
+            browser_scraper = await playwright.chromium.launch(headless=False)
 
-        for idx, processo in enumerate(processos, 1):
+            for idx, processo in enumerate(processos, 1):
 
-            print(f"\n📦 Processando {idx}/{len(processos)}: {processo['numero']}")
+                print(f"\n📦 Processando {idx}/{len(processos)}: {processo['numero']}")
 
-            # 📄 Consulta processo
-            houve_novidade, mensagem = await checar_processo(playwright, processo)
+                # 📄 Consulta processo
+                houve_novidade, mensagem = await checar_processo(browser_scraper, processo)
 
-            mensagem_numerada = f"📩 Mensagem {idx} de {len(processos)}:\n" + mensagem
+                mensagem_numerada = f"📩 Mensagem {idx} de {len(processos)}:\n" + mensagem
+
+                if canal == "telegram":
+                    enviar_telegram(mensagem_numerada, BOT_TOKEN, CHAT_ID)
+                elif canal == "whatsapp":
+                    await enviar_whatsapp(page_whatsapp, mensagem_numerada, WHATSAPP_CONTATO)
+
+                if houve_novidade:
+                    total_com_novidade += 1
+                else:
+                    total_sem_novidade += 1
+
+            print("\nRelatório Final:\n")
+            print(f"{total_sem_novidade} processos sem movimentação")
+            print(f"{total_com_novidade} processos com novas movimentações")
+
+            resumo = "📊 *Relatório Final:*\n"
+            resumo += f"✔️ {total_sem_novidade} processos sem movimentação\n"
+            resumo += f"🔔 {total_com_novidade} processos com novas movimentações"
 
             if canal == "telegram":
-                enviar_telegram(mensagem_numerada, BOT_TOKEN, CHAT_ID)
+                enviar_telegram(resumo, BOT_TOKEN, CHAT_ID)
             elif canal == "whatsapp":
-                await enviar_whatsapp(page_whatsapp, mensagem_numerada, WHATSAPP_CONTATO)
+                await enviar_whatsapp(page_whatsapp, resumo, WHATSAPP_CONTATO)
 
-            if houve_novidade:
-                total_com_novidade += 1
-            else:
-                total_sem_novidade += 1
+        finally:
+            # Garante que todos os navegadores sejam fechados no final
+            if browser_scraper:
+                await browser_scraper.close()
+            if browser_whatsapp:
+                await browser_whatsapp.close()
 
-        print("\nRelatório Final:\n")
-        print(f"{total_sem_novidade} processos sem movimentação")
-        print(f"{total_com_novidade} processos com novas movimentações")
-
-        resumo = "📊 *Relatório Final:*\n"
-        resumo += f"✔️ {total_sem_novidade} processos sem movimentação\n"
-        resumo += f"🔔 {total_com_novidade} processos com novas movimentações"
-
-        if canal == "telegram":
-            enviar_telegram(resumo, BOT_TOKEN, CHAT_ID)
-        elif canal == "whatsapp":
-            await enviar_whatsapp(page_whatsapp, resumo, WHATSAPP_CONTATO)
-
-        if canal == "whatsapp":
-            await playwright.stop()
 
 if __name__ == "__main__":
     asyncio.run(main())
